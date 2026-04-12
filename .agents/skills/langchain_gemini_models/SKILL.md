@@ -1,3 +1,6 @@
+﻿---
+description: LangChain 프로젝트(langchian-quiz-chatbot) 전용 가이드로, 최신 Gemini 모델 정보, 사용 제한 및 Deprecation 일정 등을 확인하거나 관련 개발을 할 때 파악해야 합니다.
+---
 # Models
 
 > [!IMPORTANT]
