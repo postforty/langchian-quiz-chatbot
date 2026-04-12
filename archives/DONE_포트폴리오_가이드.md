@@ -1,3 +1,7 @@
+> [!CAUTION]
+> 이 문서는 더 이상 업데이트되지 않으며, `PORTFOLIO_CHECKLIST.md`로 통합되었습니다.
+> 프로젝트 진행 시에는 [PORTFOLIO_CHECKLIST.md](../PORTFOLIO_CHECKLIST.md)를 참조하세요.
+
 ## SW특기자용 포트폴리오 구성 예시
 **(고3 기준, 완성도 높은 2~3개)**
 

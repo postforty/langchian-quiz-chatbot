@@ -1,10 +1,10 @@
 # 포트폴리오 프로젝트 체크리스트
 
-이 문서는 `포트폴리오_가이드.md`를 바탕으로 LangChain Quiz Chatbot 프로젝트 진행 시 준수해야 할 핵심 지침을 정리한 것입니다.
+이 문서는 [archives/DONE_포트폴리오_가이드.md](./archives/DONE_포트폴리오_가이드.md)를 바탕으로 LangChain Quiz Chatbot 프로젝트 진행 시 준수해야 할 핵심 지침을 정리한 것입니다.
 
 ## 1. 프로젝트 기본 설정
 - [ ] **한 줄 컨셉**: 프로젝트의 핵심 가치를 담은 문구 정의 (예: "PDF 문서를 활용한 지능형 퀴즈 자동 생성 및 학습 보조 시스템")
-- [ ] **기술 스택**: LangChain, LangGraph, Gemini 1.5 Flash, FAISS, Streamlit, uv 등 사용 기술 명시
+- [ ] **기술 스택**: LangChain, LangGraph, Gemini 2.5 Flash / 3 Flash (무료 티어), FAISS, Streamlit, uv 등 사용 기술 명시
 
 ## 2. 프로젝트 핵심 구성 (포트폴리오 반영)
 - [ ] **문제 정의**: 기존 학습 방식(수동 문제 풀이 등)의 문제점 및 챗봇을 통한 해결 방안 도출
