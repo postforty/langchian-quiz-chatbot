@@ -254,7 +254,9 @@ if prompt := st.chat_input("메시지를 입력하세요"):
 if __name__ == "__main__":
     import sys
     from streamlit.web import cli as stcli
+    import streamlit.runtime as runtime
     
-    # streamlit run main.py와 동일하게 동작하도록 설정
-    sys.argv = ["streamlit", "run", "main.py"]
-    sys.exit(stcli.main())
+    # 이미 Streamlit 런타임이 실행 중인지 확인하여 중복 실행(RuntimeError) 방지
+    if not runtime.exists():
+        sys.argv = ["streamlit", "run", "main.py"]
+        sys.exit(stcli.main())

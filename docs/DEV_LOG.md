@@ -21,6 +21,11 @@
 
 ## 🪵 로그 상세 내역
 
+### 2026-04-12 | Streamlit 환경에서 Runtime instance already exists! 오류 해결
+- **배경 및 문제 정의 (가설):** `uv run streamlit run main.py` 명령어로 앱을 직접 실행할 때 `RuntimeError: Runtime instance already exists!` 오류가 발생하여 실행이 중단됨. Streamlit CLI 도구(`streamlit run`)로 실행 중인데 `main.py` 파일 내부에서 `stcli.main()`을 또다시 호출하여 런타임 객체를 중복 생성하려 한 것이 원인임을 파악함.
+- **시도 및 해결책:** `streamlit.runtime.exists()` 메서드를 가져와서 런타임 존재 여부를 먼저 확인하도록 로직을 수정함 (`if not runtime.exists():` 조건문 추가). 
+- **결과 및 채택 이유:** Streamlit 명령어로 실행했을 때는 내부에서 다시 재실행을 방지하여 에러가 깔끔하게 해결됨. 추후 사용자가 단순히 `python main.py`(또는 `uv run python main.py`)명령어를 입력했을 때도 `streamlit` 커맨드로 전환해주는 편의성은 그대로 유지할 수 있음.
+
 ### 2026-04-12 | 최신 무료 LLM 모델(Gemini 2.5 Flash)로 일괄 마이그레이션
 - **배경 및 문제 정의 (가설):** 기존 `gemini-2.0-flash` 모델이 Deprecated(감손) 상태임을 공식 문서(`gemini-ai-studio.md`)에서 확인. 비용 효율적이면서도 동일한 성능을 보장하는 무료 티어 모델로의 전환 필요성 대두.
 - **시도 및 해결책:** 프로젝트 로직 전반(`main.py`의 `ChatGoogleGenerativeAI`, `create_agent`)과 프로젝트 가이드라인(`AGENTS.md`)을 최신 권장 무료 모델인 `gemini-2.5-flash`로 모두 업데이트함. 포트폴리오 가이드에도 명시.
