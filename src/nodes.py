@@ -7,8 +7,15 @@ from src.models import QuizState, QuizSchema
 from src.vectorstore import get_vectorstore, search_documents
 
 # --- [모델 초기화] ---
-router_llm = ChatGoogleGenerativeAI(model=ROUTER_MODEL)
-main_llm = ChatGoogleGenerativeAI(model=MAIN_MODEL)
+# @st.cache_resource로 래핑하여 첫 호출 시점(API 키 로드 이후)에 초기화
+# 모듈 레벨에서 즉시 생성하면 .env 로드 전에 API 키 검증 실패 발생
+@st.cache_resource
+def get_router_llm():
+    return ChatGoogleGenerativeAI(model=ROUTER_MODEL)
+
+@st.cache_resource
+def get_main_llm():
+    return ChatGoogleGenerativeAI(model=MAIN_MODEL)
 
 # --- [노드 함수 정의] ---
 
@@ -28,7 +35,7 @@ def router(state: QuizState) -> QuizState:
     반드시 'quiz', 'coach', 'qa' 중 단어 하나로만 답변하세요.
     메시지: {last_message}"""
     
-    response = router_llm.invoke(prompt)
+    response = get_router_llm().invoke(prompt)
     intent = response.content.strip().lower()
     
     # 예외 처리: 예상치 못한 응답 시 기본값 qa
@@ -48,7 +55,7 @@ def quiz_gen(state: QuizState) -> QuizState:
     context = "\n\n".join([d.page_content for d in docs])
     
     # Structured Output을 사용하여 Pydantic 모델로 직접 받음 (정규식 제거)
-    structured_llm = main_llm.with_structured_output(QuizSchema)
+    structured_llm = get_main_llm().with_structured_output(QuizSchema)
     
     try:
         quiz = structured_llm.invoke(
@@ -117,7 +124,7 @@ def explain(state: QuizState) -> QuizState:
     정답: {quiz['answer']}번
     문서 근거: {context}"""
     
-    response = main_llm.invoke(prompt)
+    response = get_main_llm().invoke(prompt)
     
     # 해설 후 퀴즈 세션 종료
     return {
@@ -139,7 +146,7 @@ def rag_search(state: QuizState) -> QuizState:
     문서: {context}
     질문: {query}"""
     
-    response = main_llm.invoke(prompt)
+    response = get_main_llm().invoke(prompt)
     return {"messages": [AIMessage(content=response.content)]}
 
 def coach_analyze(state: QuizState) -> QuizState:
@@ -163,5 +170,5 @@ def coach_analyze(state: QuizState) -> QuizState:
     
     오답 목록의 대표 키워드를 파악하여 어떤 부분을 보완하면 좋을지 제안하세요."""
     
-    response = main_llm.invoke(prompt)
+    response = get_main_llm().invoke(prompt)
     return {"messages": [AIMessage(content=f"📊 **학습 분석 리포트**\n\n{response.content}")]}

@@ -74,14 +74,9 @@ def create_quiz_graph():
     # 여기서는 router가 'answer check' 의도를 파악한다고 가정하거나 
     # 퀴즈 진행 중일 때 최우선으로 grade로 보내는 로직을 router에 추가할 수 있음.
     
-    workflow.add_conditional_edges(
-        "grade",
-        route_after_grade,
-        {
-            "explain": "explain",
-            "END": END
-        }
-    )
+    # grade 노드: 정답이면 END, 오답이면 explain으로 분기
+    # 매핑 딕셔너리 없이 호출 → 반환값("explain" 또는 END 상수)을 LangGraph가 직접 해석
+    workflow.add_conditional_edges("grade", route_after_grade)
     workflow.add_edge("explain", END)
     
     return workflow.compile()
