@@ -27,5 +27,5 @@ CHUNK_OVERLAP = 100
 FAISS_INDEX_PATH = "faiss_index_pdf_quiz"
 
 # --- [UI/UX 설정] ---
-PAGE_TITLE = "PDF AI 퀴즈 챗봇"
+PAGE_TITLE = "Learning Pacemaker Bot"
 PAGE_ICON = "📖"
