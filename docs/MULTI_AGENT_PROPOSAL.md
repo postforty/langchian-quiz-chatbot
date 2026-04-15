@@ -194,50 +194,222 @@ class QuizChatbotState(TypedDict):
     next_agent: str
 ```
 
-### 3.3 Supervisor 구현 개념
+### 3.3 저수준 StateGraph 기반 구현
+
+> **설계 결정**: `create_react_agent` 대신 **저수준 `StateGraph`** 를 채택합니다.
+> 퀴즈 학습 플로우는 본질적으로 **결정적 상태 머신** (출제 → 답변 대기 → 채점 → 해설 → 다음 문제)이므로, LLM이 자율적으로 도구 호출 루프를 결정하는 ReAct 패턴보다, 개발자가 전이(transition)를 명시적으로 제어하는 StateGraph가 더 적합합니다.
+
+#### 1) 그래프 흐름도
+
+```
+              START
+                │
+                ▼
+        ┌──────────────┐
+        │   router     │  ← 사용자 의도를 LLM으로 분류
+        └──────┬───────┘
+               │
+       ┌───────┼───────────┐
+       ▼       ▼           ▼
+   ┌────────┐ ┌────────┐ ┌────────────┐
+   │ quiz   │ │  rag   │ │  coach     │
+   │ _gen   │ │ _search│ │  _analyze  │
+   └───┬────┘ └───┬────┘ └─────┬──────┘
+       │          │            │
+       ▼          ▼            ▼
+   ┌────────┐ ┌────────┐      END
+   │ wait   │ │ format │
+   │ _answer│ │ _answer│
+   └───┬────┘ └───┬────┘
+       │          │
+       ▼          ▼
+   ┌────────┐    END
+   │ grade  │
+   └───┬────┘
+       │
+       ├──── 오답 ──→ explain ──→ quiz_gen (루프)
+       │
+       └──── 정답 ──→ END
+```
+
+#### 2) 상태 및 노드 정의
 
 ```python
-from langgraph.prebuilt import create_react_agent
+from typing import Annotated, Literal
+from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import HumanMessage, AIMessage
 
-# 각 전문 에이전트 정의
-quiz_agent = create_react_agent(
-    model="google_genai:gemini-2.5-flash",
-    tools=[search_quiz_material, check_question_history],
-    prompt="당신은 교육학 전문가입니다. 문서 기반 퀴즈를 생성하세요...",
-    name="quiz_master"
+
+# ── 1. 공유 상태 스키마 ──────────────────────────────────
+class QuizState(TypedDict):
+    """그래프 전체에서 공유되는 상태"""
+    messages: Annotated[list, add_messages]   # 대화 이력
+    intent: str                               # router 판별 결과
+    current_quiz: dict | None                 # 현재 출제된 퀴즈
+    quiz_history: list[dict]                  # 출제 이력 (중복 방지)
+    wrong_answers: list[dict]                 # 오답 노트
+    total_correct: int
+    total_attempted: int
+    retrieved_docs: list[str]                 # 검색된 문서 청크
+
+
+# ── 2. 모델 초기화 ───────────────────────────────────────
+router_llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash-lite"   # 라우팅은 경량 모델
+)
+main_llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash"        # 생성 작업은 표준 모델
 )
 
-rag_agent = create_react_agent(
-    model="google_genai:gemini-2.5-flash",
-    tools=[similarity_search, mmr_search, get_document_metadata],
-    prompt="당신은 문서 검색 전문가입니다. 근거 기반으로 답변하세요...",
-    name="rag_researcher"
-)
 
-grading_agent = create_react_agent(
-    model="google_genai:gemini-2.5-flash",
-    tools=[search_explanation_context, log_wrong_answer],
-    prompt="당신은 채점 및 해설 전문가입니다. 상세한 피드백을 제공하세요...",
-    name="grader"
-)
+# ── 3. 노드 함수 정의 ────────────────────────────────────
+def router(state: QuizState) -> QuizState:
+    """사용자 의도를 분류하는 라우터 노드"""
+    last_msg = state["messages"][-1].content
+    response = router_llm.invoke(
+        f"다음 사용자 메시지의 의도를 분류하세요.\n"
+        f"'quiz', 'qa', 'coach' 중 하나만 답하세요.\n"
+        f"메시지: {last_msg}"
+    )
+    return {"intent": response.content.strip().lower()}
 
-# Supervisor 그래프 구성
-from langgraph_supervisor import create_supervisor
 
-supervisor = create_supervisor(
-    agents=[quiz_agent, rag_agent, grading_agent],
-    model="google_genai:gemini-2.5-flash",
-    prompt=(
-        "당신은 PDF 학습 도우미의 총괄 매니저입니다.\n"
-        "사용자의 의도를 파악하여 적절한 전문 에이전트에게 작업을 위임하세요.\n"
-        "- 퀴즈 출제 요청 → quiz_master\n"
-        "- 문서 내용 질문 → rag_researcher\n"
-        "- 정답 확인/채점 → grader\n"
-    ),
-)
+def quiz_gen(state: QuizState) -> QuizState:
+    """문서 기반 퀴즈를 생성하는 노드"""
+    # 1) 벡터 검색으로 관련 청크 수집
+    docs = vectorstore.similarity_search(
+        state["messages"][-1].content, k=5
+    )
+    context = "\n".join([d.page_content for d in docs])
+    
+    # 2) 퀴즈 생성 (Structured Output)
+    quiz = main_llm.with_structured_output(QuizSchema).invoke(
+        f"다음 내용으로 4지선다 퀴즈 1개를 생성하세요:\n{context}"
+    )
+    return {
+        "current_quiz": quiz.model_dump(),
+        "retrieved_docs": [d.page_content for d in docs],
+        "messages": [AIMessage(content=format_quiz(quiz))],
+    }
 
-app = supervisor.compile()
+
+def wait_answer(state: QuizState) -> QuizState:
+    """사용자 답변을 대기하는 중단점 (Human-in-the-Loop)"""
+    # LangGraph의 interrupt() 활용 — 사용자 입력까지 그래프 일시정지
+    return state
+
+
+def grade(state: QuizState) -> QuizState:
+    """정답 확인 및 채점 노드"""
+    user_answer = state["messages"][-1].content
+    quiz = state["current_quiz"]
+    is_correct = int(user_answer.strip()) == quiz["answer"]
+    
+    new_state = {
+        "total_attempted": state["total_attempted"] + 1,
+    }
+    if is_correct:
+        new_state["total_correct"] = state["total_correct"] + 1
+        new_state["messages"] = [AIMessage(content="정답입니다! 🎉")]
+    else:
+        new_state["wrong_answers"] = [
+            *state["wrong_answers"], quiz
+        ]
+    return new_state
+
+
+def explain(state: QuizState) -> QuizState:
+    """오답 시 문서 근거를 인용한 해설 생성 노드"""
+    quiz = state["current_quiz"]
+    context = "\n".join(state["retrieved_docs"])
+    explanation = main_llm.invoke(
+        f"문제: {quiz['question']}\n"
+        f"정답: {quiz['answer']}번\n"
+        f"참고 문서:\n{context}\n\n"
+        f"위 근거를 인용하여 왜 이것이 정답인지 상세히 해설하세요."
+    )
+    return {
+        "messages": [
+            AIMessage(content=f"오답입니다.\n\n{explanation.content}")
+        ]
+    }
+
+
+def rag_search(state: QuizState) -> QuizState:
+    """문서 검색 + RAG 답변 생성 노드"""
+    query = state["messages"][-1].content
+    docs = vectorstore.similarity_search(query, k=3)
+    context = "\n".join([d.page_content for d in docs])
+    answer = main_llm.invoke(
+        f"다음 문서를 근거로 질문에 답하세요.\n"
+        f"문서:\n{context}\n질문: {query}"
+    )
+    return {"messages": [AIMessage(content=answer.content)]}
+
+
+def coach_analyze(state: QuizState) -> QuizState:
+    """학습 이력 분석 및 코칭 노드"""
+    stats = {
+        "attempted": state["total_attempted"],
+        "correct": state["total_correct"],
+        "wrong_count": len(state["wrong_answers"]),
+    }
+    analysis = main_llm.invoke(
+        f"학습 통계: {stats}\n"
+        f"오답 목록: {state['wrong_answers'][-5:]}\n\n"
+        f"취약 영역을 분석하고 학습 전략을 제안하세요."
+    )
+    return {"messages": [AIMessage(content=analysis.content)]}
+
+
+# ── 4. 조건부 엣지 (라우팅 로직) ─────────────────────────
+def route_by_intent(state: QuizState) -> str:
+    """router 노드 결과에 따라 다음 노드를 결정"""
+    intent = state.get("intent", "qa")
+    if intent == "quiz":
+        return "quiz_gen"
+    elif intent == "coach":
+        return "coach_analyze"
+    else:
+        return "rag_search"
+
+
+def route_by_grade(state: QuizState) -> str:
+    """채점 결과에 따라 해설 또는 종료를 결정"""
+    user_answer = state["messages"][-1].content
+    quiz = state["current_quiz"]
+    if int(user_answer.strip()) == quiz["answer"]:
+        return END
+    return "explain"
+
+
+# ── 5. 그래프 조립 ───────────────────────────────────────
+graph = StateGraph(QuizState)
+
+# 노드 등록
+graph.add_node("router", router)
+graph.add_node("quiz_gen", quiz_gen)
+graph.add_node("wait_answer", wait_answer)
+graph.add_node("grade", grade)
+graph.add_node("explain", explain)
+graph.add_node("rag_search", rag_search)
+graph.add_node("coach_analyze", coach_analyze)
+
+# 엣지 연결
+graph.add_edge(START, "router")
+graph.add_conditional_edges("router", route_by_intent)
+graph.add_edge("quiz_gen", "wait_answer")
+graph.add_edge("wait_answer", "grade")
+graph.add_conditional_edges("grade", route_by_grade)
+graph.add_edge("explain", "quiz_gen")    # 오답 → 다음 문제
+graph.add_edge("rag_search", END)
+graph.add_edge("coach_analyze", END)
+
+# 컴파일
+app = graph.compile()
 ```
 
 ### 3.4 에이전트 간 핸드오프 흐름
@@ -352,3 +524,79 @@ app = supervisor.compile()
 | Learning Coach | `gemini-2.5-flash-lite` | 패턴 분석 + 요약 → 가벼운 모델로 가능 |
 
 > **참고**: 모든 모델은 무료 티어 범위 내에서 사용 가능합니다. Supervisor와 Learning Coach에 경량 모델을 적용하면 전체 API 호출 비용을 약 30~40% 절감할 수 있습니다.
+
+---
+
+## Appendix A. `create_react_agent` vs 저수준 `StateGraph` 비교 분석
+
+### A.1 두 접근 방식의 본질적 차이
+
+| 관점 | `create_react_agent` (고수준) | `StateGraph` (저수준) |
+|:---|:---|:---|
+| 제어 모델 | **LLM 자율 결정** — 어떤 도구를<br>언제 호출할지 LLM이 판단 | **개발자 명시 제어** — 전이 조건을<br>코드로 정의 |
+| 흐름 예측성 | 비결정적 — 같은 입력에도<br>다른 경로 가능 | 결정적 — 동일 입력이면<br>동일 경로 보장 |
+| 내부 구조 | 블랙박스 — 내부 루프를<br>커스터마이즈하기 어려움 | 화이트박스 — 모든 노드/엣지<br>직접 설계 |
+| 적합 유형 | 열린(open-ended) 질의응답,<br>자유도 높은 도구 사용 | 정해진 워크플로우,<br>상태 머신 기반 흐름 |
+| 개발 속도 | 빠름 (5줄이면 에이전트 완성) | 느림 (노드/엣지/상태 직접 정의) |
+| 디버깅 | 어려움 (LLM의 추론이 변수) | 쉬움 (어떤 노드에서 어떤<br>조건으로 분기했는지 명확) |
+
+### A.2 이 프로젝트에서 저수준 StateGraph가 적합한 이유
+
+#### 1) 퀴즈 플로우는 결정적 상태 머신
+
+퀴즈 학습의 핵심 흐름은 아래와 같이 **순서가 고정**되어 있습니다:
+
+```
+출제 → 사용자 답변 대기 → 채점 → (정답)종료 / (오답)해설 → 다음 출제
+```
+
+이 흐름에서 **LLM이 자율적으로 결정할 부분이 없습니다.** `create_react_agent`의 "생각(Think) → 행동(Act) → 관찰(Observe)" 루프는 이 고정 흐름에 불필요한 복잡성만 추가합니다.
+
+반면 `StateGraph`의 `add_conditional_edges()`로 `정답 → END`, `오답 → explain → quiz_gen` 같은 분기를 명시하면 **예측 가능하고 안정적인 흐름**이 보장됩니다.
+
+#### 2) Human-in-the-Loop (사용자 답변 대기)가 자연스러움
+
+퀴즈 앱의 핵심은 "문제 출제 → 사용자가 답변할 때까지 대기"입니다. `StateGraph`에서는 `interrupt()` 또는 `breakpoint`를 특정 노드에 설정하여 **그래프 실행을 일시정지**하고, 사용자 입력이 들어오면 이어서 실행할 수 있습니다. `create_react_agent`에서는 이런 중단/재개 패턴을 구현하기 어렵습니다.
+
+#### 3) 상태 관리의 투명성
+
+`QuizState`에 `current_quiz`, `wrong_answers`, `total_correct` 등을 명시적으로 정의하면:
+- 각 노드가 어떤 상태를 읽고 쓰는지 **코드만 보고 파악** 가능
+- `MemorySaver` 체크포인터와 결합하면 **세션 간 상태 영속화**도 자연스러움
+- `create_react_agent`의 암묵적 메시지 히스토리 관리보다 **훨씬 통제 가능**
+
+#### 4) 포트폴리오 관점에서의 차별화
+
+| 접근 방식 | 면접관이 보는 관점 |
+|:---|:---|
+| `create_react_agent` 사용 | "프리빌트 API를 호출할 줄 안다" |
+| `StateGraph` 직접 설계 | "프레임워크 내부를 이해하고,<br>도메인에 맞는 아키텍처를 설계할 수 있다" |
+
+저수준 구현은 **상태 설계, 전이 조건 설계, 에러 처리 전략** 등을 직접 고민한 흔적이 코드에 남으므로, 엔지니어링 역량을 더 강하게 증명합니다.
+
+### A.3 하이브리드 전략: 적재적소 활용
+
+모든 노드를 저수준으로 구현할 필요는 없습니다. **핵심 흐름은 StateGraph로, 내부 노드 일부는 고수준 도구를 활용**하는 하이브리드가 가장 실용적입니다.
+
+```python
+# 그래프 골격 — 저수준 StateGraph로 명시적 제어
+graph = StateGraph(QuizState)
+graph.add_edge(START, "router")
+graph.add_conditional_edges("router", route_by_intent)
+graph.add_edge("quiz_gen", "wait_answer")
+graph.add_edge("wait_answer", "grade")
+graph.add_conditional_edges("grade", route_by_grade)
+
+# 개별 노드 내부 — 필요 시 chain/tool 활용
+def quiz_gen(state: QuizState) -> QuizState:
+    # 이 내부에서는 LangChain chain (prompt | llm | parser)을 사용해도 OK
+    chain = quiz_prompt | main_llm | JsonOutputParser()
+    quiz = chain.invoke({"context": ..., "history": ...})
+    return {"current_quiz": quiz}
+```
+
+이렇게 하면:
+- **매크로 수준** (어떤 순서로 어떤 작업을 할지)은 StateGraph가 통제
+- **마이크로 수준** (각 노드 안에서 LLM을 어떻게 호출할지)은 LangChain 체인으로 유연하게 처리
+
+> **결론**: 이 프로젝트에서는 **저수준 `StateGraph`를 기본 뼈대로 채택**하고, 각 노드 내부에서 필요에 따라 LangChain 체인/파서를 활용하는 하이브리드 접근을 권장합니다.
