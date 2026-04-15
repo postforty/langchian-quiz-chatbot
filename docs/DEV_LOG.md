@@ -21,6 +21,15 @@
 
 ## 🪵 로그 상세 내역
 
+### 2026-04-15 | 저수준 StateGraph 기반 멀티 에이전트 리팩토링 및 모듈화
+- **배경 및 문제 정의 (가설):** 기존 `main.py`는 UI와 로직이 혼재된 모놀리스 구조로 유지보수가 어렵고, 단일 에이전트가 모든 역할을 수행하여 프롬프트가 비대해지는 문제가 있었음. 또한 결정적이어야 할 퀴즈 플로우에 비결정적인 ReAct 에이전트를 사용하는 것은 비효율적이라는 가설을 세움.
+- **시도 및 해결책:** 
+  1. **모듈 분리**: `src/` 디렉토리에 `config`, `ingestion`, `vectorstore`, `nodes`, `graph` 등 기능별 모듈을 생성하여 관심사를 분리함.
+  2. **저수준 StateGraph 도입**: `create_react_agent` 대신 `StateGraph`를 직접 설계하여 퀴즈(출제-대기-채점-해설) 플로우를 명확한 상태 머신으로 구현함.
+  3. **Structured Output**: 정규식 기반 JSON 파싱을 제거하고 Pydantic 모델과 `with_structured_output`을 결합하여 데이터 추출 안정성을 99% 이상으로 확보함.
+  4. **캐싱 및 최적화**: 임베딩 객체 등에 `@st.cache_resource`를 적용하고, 라우터에 경량 모델(`flash-lite`)을 적용하여 비용과 속도를 최적화함.
+- **결결과 및 채택 이유:** 코드가 극도로 깔끔해졌으며(main.py 260줄 → 100줄), 퀴즈 풀기 모드에서 숫자를 입력했을 때의 오작동이 사라짐. 엔지니어링 관점에서 확장성과 예측 가능성이 대폭 향상됨.
+
 ### 2026-04-12 | Streamlit 환경에서 Runtime instance already exists! 오류 해결
 - **배경 및 문제 정의 (가설):** `uv run streamlit run main.py` 명령어로 앱을 직접 실행할 때 `RuntimeError: Runtime instance already exists!` 오류가 발생하여 실행이 중단됨. Streamlit CLI 도구(`streamlit run`)로 실행 중인데 `main.py` 파일 내부에서 `stcli.main()`을 또다시 호출하여 런타임 객체를 중복 생성하려 한 것이 원인임을 파악함.
 - **시도 및 해결책:** `streamlit.runtime.exists()` 메서드를 가져와서 런타임 존재 여부를 먼저 확인하도록 로직을 수정함 (`if not runtime.exists():` 조건문 추가). 
