@@ -51,10 +51,17 @@ def quiz_gen(state: QuizState) -> QuizState:
     structured_llm = main_llm.with_structured_output(QuizSchema)
     
     try:
-        quiz = structured_llm.invoke(f"다음 내용을 바탕으로 4지선다 퀴즈를 하나 생성하세요:\n\n{context}")
+        quiz = structured_llm.invoke(
+            f"다음 내용을 바탕으로 4지선다 퀴즈를 하나 생성하세요. "
+            f"선택지(options)에는 '1.', '2.'와 같은 번호를 붙이지 말고 순수 텍스트만 리스트로 제공하세요.\n\n"
+            f"내용: {context}"
+        )
         
         quiz_dict = quiz.model_dump()
-        msg_content = f"**[문제]**\n{quiz_dict['question']}\n\n" + "\n".join(quiz_dict['options'])
+        
+        # 선택지에 번호(1~4)를 붙여서 가독성 좋게 포맷팅
+        options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(quiz_dict['options'])])
+        msg_content = f"**[문제]**\n{quiz_dict['question']}\n\n{options_text}"
         
         return {
             "current_quiz": quiz_dict,
