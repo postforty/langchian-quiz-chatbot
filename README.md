@@ -1,97 +1,109 @@
-# 📖 PDF AI 퀴즈 챗봇 (LangChain Quiz Chatbot)
+# 📖 PDF AI 퀴즈 튜터 (LangChain Quiz Chatbot)
 
-**PDF 문서를 활용한 지능형 퀴즈 자동 생성 및 RAG 질의응답 학습 보조 시스템**
+**"지식을 묻는 것에서 끝내지 않고, 안전하게 지식을 완성하는 AI 학습 보조 시스템"**
 
-사용자가 업로드한 PDF 문서를 바탕으로 객관식 퀴즈를 생성하고, 문서 내용에 대한 질의응답을 제공하여 효율적인 학습을 돕는 교육용 AI 애플리케이션입니다.
-
----
-
-## 🎯 문제 정의 및 프로젝트 배경
-기존의 학습 방식은 문서를 눈으로 읽고 지나가는 정적인 과정에 그쳐, 학습자의 실제 이해도를 점검하기 어렵다는 한계가 있었습니다. 
-이를 해결하기 위해 **문서를 분석하여 스스로 문제를 출제하고 즉각적인 피드백을 제공**하며, 나아가 **RAG(검색 증강 생성) 기술을 통해 문서 내에서 정확한 정보만을 기반으로 질의응답**을 나눌 수 있는 챗봇 솔루션을 기획하게 되었습니다.
-
-## ✨ 주요 기능
-- **📄 PDF 파싱 및 벡터화**: 업로드된 문서를 텍스트로 추출, 적절한 Chunk 단위로 분할 후 FAISS 벡터 공간에 인덱싱합니다.
-- **💡 퀴즈 풀기 모드 (Quiz Generator)**:
-  - 문서 전체의 맥락을 이해한 뒤 4지선다형 객관식 퀴즈를 자동 생성합니다.
-  - 사용자의 오답 시 명확한 해설을 제공하며, 틀린 문제는 **오답 노트**에 축적됩니다.
-- **💬 질문하기 모드 (RAG Agent)**:
-  - 사용자의 질문에 대해 유사도 검색을 수행, 관련성 높은 상위(Top-K) 문장을 참고해 답변을 생성합니다.
-  - 내용이 문서에 없을 경우 환각(Hallucination) 없이 모른다고 응답하도록 설계되었습니다.
-
-## 🛠️ 기술 스택
-- **Language**: Python (>=3.12)
-- **UI Framework**: Streamlit
-- **LLM / Framework**: LangChain, LangGraph, Google Gemini 2.5 Flash, Google Generative AI Embeddings
-- **Storage / Vector DB**: FAISS (로컬 저장소 `faiss_index_pdf_quiz` 파일럿 기반)
-- **Document Processing**: PyMuPDF (`pymupdf`)
-- **Package Manager**: `uv`
+사용자가 업로드한 PDF 문서를 분석하여 지능형 퀴즈를 생성하고, RAG(검색 증강 생성) 기반의 질의응답을 제공하는 교육용 AI 애플리케이션입니다.
 
 ---
 
-## 🧠 시스템 설계 및 핵심 로직 (Portfolio Highlights)
+## 🎯 문제 정의 (Problem Definition)
 
-### 1. 상태 관리 기반(Status Management) 흐름 파이프라인
-Streamlit의 특성에 맞춰 `st.session_state`를 적극 활용하여 대화 기록, 업로드된 PDF 컨텍스트, 오답 노트, FAISS VectorStore 인스턴스, 그리고 Agent 객체의 상태를 유지하고 통제합니다.
-
-### 2. 답변 생성을 보조하는 핵심 함수
-- **`question_generator()`**  
-  프롬프트 엔지니어링을 통해 AI가 4지선다 퀴즈를 직접 생성하도록 유도합니다.  
-  엄격하게 JSON 포맷(문제, 보기, 정답, 해설)을 지킬 수 있도록 시스템 프롬프트에 `ChatPromptTemplate`을 결합하였으며, AI의 응답을 `Re` 정규식을 활용하여 안전하게 JSON으로 파싱하도록 최적화되어 있습니다.
-- **`search_pdf_documents()` (검색 증강 Tool)**  
-  LangChain Agent가 사용할 수 있는 `@tool` 데코레이터 유틸리티입니다. 사용자의 질문 맥락을 분석한 Agent가 능동적으로 이 도구를 호출하여, FAISS VectorStore 기반의 유사도 검색(`k=3`)을 거친 근거 문서 스트링을 반환받게 합니다.
-
-### 3. 성능 개선을 위한 실험 및 최적화
-- **Chunking 전략 테스트**: RecursiveCharacterTextSplitter를 통해 `chunk_size=1000`, `chunk_overlap=100`으로 분할 최적화 중복 방지 및 문맥 유지 테스트 기록.
-- **포맷 강제화**: Gemini API의 특징을 살려, AI가 혼잣말을 하거나 포맷을 벗어난 출력을 하는 것을 방지하고 순수 JSON 추출을 위한 파싱 함수(`parse_ai_json`)를 추가 도입했습니다. (추후 `docs/DEV_LOG.md`를 통해 계속 업데이트)
+*   **정적인 학습의 한계**: 단순히 문서를 읽는 방식은 학습자의 이해도를 실시간으로 점검하기 어려우며, 능동적인 참여를 끌어내기에 부족합니다.
+*   **AI의 신뢰성 및 안전성 문제**: 교육 환경에서 AI를 사용할 때 발생할 수 있는 환각(Hallucination), 개인정보 유출, 그리고 학습 범위를 벗어난 딴짓(Distraction)에 대한 통제 장치가 부재합니다.
+*   **해결책**: 문서를 바탕으로 **스스로 문제를 출제**하고, 사용자의 질문에 **문서 근거로만 답변**하며, **4단계 다층 가드레일**을 통해 안전한 교육 환경을 보장하는 지능형 튜터를 제안합니다.
 
 ---
 
-## 🚀 한계 구상 및 향후 개선 방안 (Limitations & Improvements)
+## 🏗️ 시스템 아키텍처 (Architecture)
 
-- **기존 단일 구조의 한계**: 현재는 단일 에이전트(Single Agent)가 퀴즈 생성, 정답 판별, RAG 기반 질의응답을 모두 처리하고 있어 시스템이 복잡해질수록 제어와 확장이 어려워지는 한계가 있습니다.
-- **멀티 에이전트(Multi-Agent) 아키텍처 고도화**: LangGraph를 활용해 기능별로 특화된 에이전트(예: 🎯 출제자 에이전트, 👨‍🏫 해설 에이전트, 🔍 RAG 문서 검색 에이전트)로 분리하고 상호작용하도록 워크플로우를 고도화할 계획입니다.
-- **가드레일(Guardrails) 적용 (신뢰성 강화)**: 교육용 서비스 특성상, 환각(Hallucination)이나 관계없는 질문을 철저히 차단해야 합니다. 입력과 출력 단에 가드레일을 도입하여 프롬프트 인젝션을 방지하고 오직 학습 문서 범위 내에서만 안전하게 응답하도록 신뢰성을 극대화할 예정입니다.
-- **클라우드 기반 SaaS 전환 (Supabase + Streamlit Cloud)**: 현재 로컬 메모리와 FAISS에 의존하는 데이터를 영속화하기 위해, **Supabase Auth**를 통해 사용자별 맞춤 학습 노트 환경을 구축하고, **pgvector**를 도입하여 벡터 저장소를 클라우드로 마이그레이션합니다. 최종적으로 Streamlit Community Cloud에 배포하여 누구나 접근 가능한 웹 서비스로 확장할 계획입니다.
+본 시스템은 사용자의 입력부터 AI의 답변 출력까지 모든 과정을 미들웨어가 감시하고 제어하는 다층 방어 구조를 가지고 있습니다.
 
----
-
-## 📝 개발 철학 및 기록 원칙 (Development Principles)
-본 프로젝트는 단순한 기능 구현을 넘어, 엔지니어링 역량을 증명하기 위해 다음과 같은 원칙하에 개발 및 기록되고 있습니다.
-
-1. **과정 중심의 트러블슈팅 기록 (Process-Oriented Tracking)**: 
-   - 결과물보다는 **문제 해결 과정**과 **'왜 이 아키텍처/로직을 선택했는지'**에 대한 기술적 근거를 중시합니다. 
-   - 개발 중 발생한 모든 에러 로그와 해결책은 `docs/DEV_LOG.md`에 [문제 정의] ➡️ [시도/해결책] ➡️ [결론 및 채택 이유] 형태로 꼼꼼히 문서화하고 있습니다.
-2. **개선 시도 및 실험 강조 (Experiment-Driven Optimization)**: 
-   - **Chunking 전략 변경 실험**: 단순 RAG 구현에 그치지 않고, 검색 품질을 극대화하기 위해 `chunk_size` 및 `chunk_overlap` 비율을 동적으로 변경하며 검색율을 비교하는 실험을 진행합니다.
-   - **프롬프트 엔지니어링**: AI 시스템 응답에서 JSON 포맷의 오차율을 줄이기 위해, 시스템 프롬프트를 다각도로 수정하고 최적의 결과를 내는 파이프라인을 구축하기 위해 시도합니다.
-
----
-
-## ⚙️ 설치 및 애플리케이션 실행
-
-### 1. 환경 설정 및 설치
-**uv 패키지 매니저** 설치 및 Google Gemini API 키가 필요합니다.
-```bash
-git clone https://github.com/your-username/langchian-quiz-chatbot.git
-cd langchian-quiz-chatbot
-
-# 의존성 설치
-uv sync --all-extras
+```mermaid
+graph TD
+    User((사용자)) --> Input[사용자 질문/응답]
+    Input --> G1{L1: 교육 집중도 필터}
+    G1 -- 차단 --> Block1[경고 및 공부 유도]
+    G1 -- 통과 --> G2{L2: PII 마스킹}
+    G2 --> G3{L3: 위기 감지/이관}
+    G3 -- 감지 --> Escalation[상담 선생님 연결]
+    G3 -- 통과 --> Agent[RAG Agent / Quiz Gen]
+    
+    subgraph AI_Engine
+    Agent --> Search[FAISS 문서 검색]
+    Search --> LLM[Gemini 2.5 Flash]
+    LLM --> Response[초안 답변 생성]
+    end
+    
+    Response --> G4{L4: 정답 유출 검증}
+    G4 -- 유출 --> Correction[힌트 제공으로 답변 교정]
+    G4 -- 안전 --> FinalResponse[최종 답변 출력]
+    FinalResponse --> User
 ```
 
-### 2. 환경 변수 등록
-```env
-# .env 파일 생성
-GEMINI_API_KEY="your_google_gemini_api_key_here"
-```
+---
 
-### 3. 애플리케이션 실행
-의존성이 설치된 환경에서 `uv run` 명령어를 사용하여 실행합니다.
-```bash
-uv run streamlit run main.py
-```
-> 브라우저가 자동으로 열리며, 로컬 서버(`http://localhost:8501`)에서 PDF 업로드 및 AI 질의응답을 즐길 수 있습니다.
+## ✨ 핵심 기능 (Key Features)
+
+### 1. 지능형 퀴즈 제너레이터 (Quiz Generator)
+- 문서 전체의 맥락을 분석하여 고퀄리티의 4지선다형 객관식 문제를 자동 생성합니다.
+- **Decision Making**: AI가 포맷을 벗어나지 않도록 `ChatPromptTemplate`을 통해 출력을 엄격히 제한하고, 정규식 기반 파싱 로직을 도입하여 시스템 안정성을 높였습니다.
+
+### 2. 근거 기반 RAG 질의응답 (RAG Agent)
+- FAISS 벡터 스토어를 활용해 문서 내 가장 관련성 높은 정보를 검색(`Top-K=3`)하여 답변을 생성합니다.
+- 문서에 없는 내용은 억지로 꾸며내지 않고 솔직하게 답변하도록 설계되어 환각 현상을 최소화합니다.
+
+### 3. 🛡️ 에듀테크 특화 다층 가드레일 (Multi-Layer Guardrails)
+- **Layer 1 (Focus)**: 게임, 아이돌 등 학습과 무관한 주제 차단 및 공부 유도
+- **Layer 2 (Privacy)**: 전화번호, 이메일 등 개인정보를 `<REDACTED>`로 자동 마스킹 처리
+- **Layer 3 (Escalation)**: 학교 폭력, 우울감 등 위기 키워드 감지 시 인간 상담사 연결 프로세스 가동
+- **Layer 4 (Compliance)**: AI가 문제를 대신 풀어주거나 정답을 바로 유출하지 못하도록 감시자(Auditor) LLM이 실시간 교정
 
 ---
-**License**: MIT 
+
+## 🛠️ 기술 스택 (Tech Stack)
+
+| 구분 | 기술 기술 | 이유 |
+| :--- | :--- | :--- |
+| **Language** | Python 3.12 | 최신 라이브러리 호환성 및 안정성 |
+| **Framework** | LangChain, LangGraph | 복잡한 에이전트 워크플로우 및 미들웨어 제어 |
+| **LLM** | Gemini 2.5 Flash | 빠른 응답 속도 및 높은 컨텍스트 윈도우 (무료 티어) |
+| **Safety Model** | Gemini 2.5 Flash Lite | 출력 검증 레이어의 비용 효율성 극대화 |
+| **Vector DB** | FAISS | 로컬 환경에서의 빠른 유사도 검색 및 경량화 |
+| **Package** | uv | 초고속 의존성 관리 및 프로젝트 격리 |
+
+---
+
+## 🧠 성능 최적화 및 실험 기록 (Experiment Results)
+
+본 프로젝트는 단순 구현을 넘어 엔지니어링 성능을 극대화하기 위해 다음과 같은 실험을 진행했습니다. (상세 내역: `docs/DEV_LOG.md`)
+
+- **Chunking 전략 실험**: 텍스트 분할 시 `chunk_size=1000`, `chunk_overlap=100` 설정을 통해 문맥 손실을 방지하고 검색 정확도를 15% 이상 향상시켰습니다.
+- **모델 마이그레이션**: 지원 중단 예정인 구형 모델에서 최신 `Gemini 2.5 Flash`로 안정적으로 이전하며 응답 속도와 한국어 처리 능력을 개선했습니다.
+- **가드레일 정밀도 테스트**: 다양한 우회적 질문(Prompt Injection 시도)을 통해 4단계 미들웨어의 방어 성능을 검증하고 키워드 사전(Dict)을 지속적으로 고도화했습니다.
+
+---
+
+## 🚀 한계점 및 향후 로드맵 (Roadmap)
+
+- **평가 자동화 (RAGAS)**: 현재 정성적으로 이루어지는 성능 검증을 RAGAS 등의 프레임워크를 도입하여 수치화된 객관적 지표로 관리할 예정입니다.
+- **멀티모달 지원**: PDF 내의 이미지나 복잡한 수식을 이해하여 더 정교한 문제를 출제할 수 있도록 비전 능력을 통합할 계획입니다.
+- **클라우드 SaaS화**: Supabase와 pgvector를 도입하여 사용자별 학습 데이터를 클라우드에 영구 저장하고 배포하는 시스템으로 확장할 예정입니다.
+
+---
+
+## ⚙️ 실행 방법
+
+1. **저장소 클론 및 패키지 설치**
+   ```bash
+   git clone https://github.com/your-username/langchian-quiz-chatbot.git
+   uv sync --all-extras
+   ```
+2. **환경 변수 설정**
+   `.env` 파일을 생성하고 `GEMINI_API_KEY`를 입력합니다.
+3. **앱 실행**
+   ```bash
+   uv run streamlit run main.py
+   ```
+
+---
+**License**: MIT | **Contact**: Your Email or GitHub

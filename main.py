@@ -6,15 +6,21 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.agents import create_agent
 from langchain.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
-import tempfile
-import os
-import json
-import re
 from dotenv import load_dotenv
 
 # .env 파일 로드
 load_dotenv()
 
+from src.guardrails import (
+    education_guardrail,
+    student_safety_middleware,
+    counseling_escalation_middleware,
+    answer_leakage_guardrail
+)
+import tempfile
+import os
+import json
+import re
 # --- [초기 설정] ---
 # 모델 초기화 (무료 티어 권장 모델 사용)
 chat = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
@@ -106,7 +112,13 @@ def initialize_agent():
     st.session_state.agent = create_agent(
         model="google_genai:gemini-2.5-flash",
         tools=[search_pdf_documents],
-        system_prompt=system_prompt
+        system_prompt=system_prompt,
+        middleware=[
+            education_guardrail,
+            student_safety_middleware,
+            counseling_escalation_middleware,
+            answer_leakage_guardrail
+        ]
     )
 
 def general_response(user_message):
@@ -248,7 +260,17 @@ if prompt := st.chat_input("메시지를 입력하세요"):
         else:
             with st.spinner("답변을 찾는 중..."):
                 resp = general_response(prompt)
-                st.write(resp)
+                
+                # 가드레일 특수 메시지 감지 및 UI 강조
+                if "(상담실 연결 중...)" in resp:
+                    st.warning(resp)
+                elif resp.startswith("🚫") or resp.startswith("⚠️"):
+                    st.error(resp)
+                elif resp.startswith("⏰"):
+                    st.info(resp)
+                else:
+                    st.write(resp)
+                    
                 st.session_state.messages.append({"role": "assistant", "content": resp})
 
 if __name__ == "__main__":
