@@ -63,8 +63,55 @@ def process_chat(user_input: str):
     return result["messages"][-1].content
 
 # --- Streamlit UI 시작 ---
-st.set_page_config(page_title="PDF AI 멀티 에이전트 챗봇", page_icon="🤖")
-st.title("🤖 PDF AI 멀티 에이전트 챗봇")
+st.set_page_config(page_title="Learning Pacemaker", page_icon="🎯")
+
+# 커스텀 CSS 및 폰트 임포트
+st.markdown("""
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;800&display=swap');
+        
+        .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            padding: 30px 0;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+        
+        .main-title {
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #6366F1 0%, #EC4899 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+            font-size: 2.8rem;
+            margin: 0;
+            letter-spacing: -1px;
+        }
+        
+        .title-icon {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #6366F1 0%, #EC4899 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .stApp {
+            background-color: #F8FAFC;
+        }
+    </style>
+    <div class="header-container">
+        <i class="fas fa-brain title-icon"></i>
+        <h1 class="main-title">Learning Pacemaker 챗봇</h1>
+    </div>
+""", unsafe_allow_html=True)
 
 # 사이드바 설정 영역
 with st.sidebar:
@@ -81,6 +128,13 @@ with st.sidebar:
         if st.button("오답 노트 초기화"):
             st.session_state.wrong_answers = []
             st.rerun()
+
+    st.write("---")
+    if st.button("🔄 대화 및 설정 초기화", use_container_width=True, help="모든 대화 기록과 업로드된 PDF 컨텍스트를 삭제합니다."):
+        for key in list(st.session_state.keys()):
+            if key != "graph":  # 그래프 객체는 유지 (재컴파일 방지)
+                del st.session_state[key]
+        st.rerun()
 
 uploaded_file = st.file_uploader("PDF 파일을 업로드하세요", type="pdf")
 
