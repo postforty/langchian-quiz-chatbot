@@ -2,6 +2,8 @@ import re
 from langchain.agents.middleware import before_agent, after_agent
 from langchain.messages import AIMessage
 from langchain.chat_models import init_chat_model
+from langgraph.runtime import Runtime
+from src.core.state import AgentState
 
 # --- [설정 및 키워드 정의] ---
 
@@ -21,7 +23,7 @@ safety_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
 # --- [가드레일 미들웨어 구현] ---
 
 @before_agent(can_jump_to=["end"])
-def education_guardrail(state, runtime):
+def education_guardrail(state: AgentState, runtime: Runtime):
     """
     [Layer 1] 입력 필터: 학생의 질문 의도를 파악하여 교육적이지 않거나 
     부정행위/딴짓이 의심될 경우 AI 답변 생성을 차단하고 즉시 교정합니다.
@@ -72,7 +74,7 @@ def education_guardrail(state, runtime):
     return None
 
 @before_agent
-def student_safety_middleware(state, runtime):
+def student_safety_middleware(state: AgentState, runtime: Runtime):
     """
     [Layer 2] 개인정보 보호: 학생의 전화번호나 이메일이 감지되면 마스킹 처리하여 안전을 확보합니다.
     """
@@ -109,7 +111,7 @@ def student_safety_middleware(state, runtime):
     return None
 
 @before_agent(can_jump_to=["end"])
-def counseling_escalation_middleware(state, runtime):
+def counseling_escalation_middleware(state: AgentState, runtime: Runtime):
     """
     [Layer 3] 상담 이관: 심리적 위기 상황이나 상담 요청이 감지되면 AI 답변을 멈추고 
     전문 상담사 연결 안내를 제공합니다.
@@ -135,7 +137,7 @@ def counseling_escalation_middleware(state, runtime):
     return None
 
 @after_agent
-def answer_leakage_guardrail(state, runtime):
+def answer_leakage_guardrail(state: AgentState, runtime: Runtime):
     """
     [Layer 4] 출력 컴플라이언스: AI가 정답을 직접 유출하는지 감시자 모델이 검사하고, 
     필요 시 교육적인 답변으로 교정합니다.
@@ -147,6 +149,11 @@ def answer_leakage_guardrail(state, runtime):
 
     # 마지막 메시지가 AI의 답변인 경우에만 검사
     if not isinstance(last_message, AIMessage):
+        return None
+
+    # [수정] 퀴즈 마스터가 생성한 퀴즈 데이터인 경우 가드레일 통과
+    # 퀴즈 메시지는 보통 **[새로운 문제]** 또는 **[다음 문제]** 키워드를 포함함
+    if "**[" in last_message.content:
         return None
 
     # 감시자 모델에게 평가 요청
